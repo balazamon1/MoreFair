@@ -12,7 +12,7 @@
   >
     <div
       :style="tableSpaceStyles.rank"
-      class="whitespace-nowrap overflow-hidden"
+      class="whitespace-nowrap overflow-hidden rank"
     >
       {{ ranker.rank }} {{ ranker.assholeTag }}
       <sub
@@ -67,7 +67,7 @@
     <div
       v-if="tableSpace.powerGain > 0"
       :style="tableSpaceStyles.powerGain"
-      class="text-right whitespace-nowrap overflow-hidden"
+      class="text-right whitespace-nowrap overflow-hidden formattedPowerPerSec"
     >
       <span v-if="optionsStore.state.ladder.showPowerGain.value">{{
         formattedPowerPerSec
@@ -120,7 +120,7 @@ const props = withDefaults(
   {
     index: -1,
     container: null,
-  }
+  },
 );
 
 const ladderStore = useLadderStore();
@@ -131,7 +131,7 @@ const el = ref<HTMLElement | null>();
 const isVisible = useElementVisibility(el.value);
 
 const isYou = computed(
-  () => props.ranker.accountId === ladderStore.getters.yourRanker?.accountId
+  () => props.ranker.accountId === ladderStore.getters.yourRanker?.accountId,
 );
 const isFirst = computed(() => {
   return props.index === 0;
@@ -260,7 +260,9 @@ onMounted(() => {
     el.value &&
     props.container
   ) {
-    scrollToCenter(el.value, props.container);
+    requestAnimationFrame(() => {
+      scrollToCenter(el.value, props.container);
+    });
   }
 });
 
@@ -271,7 +273,9 @@ onUpdated(() => {
     el.value &&
     props.container
   ) {
-    scrollToCenter(el.value, props.container);
+    requestAnimationFrame(() => {
+      scrollToCenter(el.value, props.container);
+    });
   }
 });
 </script>

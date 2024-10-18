@@ -22,7 +22,7 @@ services:
       - mongo
     restart: unless-stopped
   postgres:
-    image: postgres:latest
+    image: postgres:15
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -33,7 +33,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: always
   mongo:
-    image: mongo:latest
+    image: mongo:7
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}

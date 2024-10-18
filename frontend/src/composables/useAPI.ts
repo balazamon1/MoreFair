@@ -1,8 +1,9 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
-import { navigateTo } from "nuxt/app";
 import Cookies from "js-cookie";
-import { useAuthStore } from "~/store/authentication";
 import { useToasts } from "~/composables/useToasts";
+import { ChatType } from "~/store/chat";
+import { AccountSettings } from "~/store/account";
+import { SearchType } from "~/store/moderation";
 
 const isDevMode = process.env.NODE_ENV !== "production";
 let lastXsrfToken = Cookies.get("XSRF-TOKEN");
@@ -39,16 +40,19 @@ axiosInstance.interceptors.request.use(
 
     return config;
   },
-  (error: AxiosError) => Promise.reject(error)
+  (error: AxiosError) => Promise.reject(error),
 );
 
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      useAuthStore().state.authenticationStatus = false;
-      useAuthStore().state.uuid = Cookies.get("_uuid") || "";
-      navigateTo("/login");
+    // if 401 unauthorized -> redirect to login
+    if (
+      error.response?.status === 401 &&
+      error.config.url !== "/api/auth/login"
+    ) {
+      window.location.href = "/login";
+      return Promise.reject(error);
     }
 
     // if status is 502, the server is down
@@ -78,7 +82,7 @@ axiosInstance.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 const API = {
@@ -146,9 +150,11 @@ const API = {
       params.append("displayName", displayName);
       return axiosInstance.patch("/api/account/name", params);
     },
-
     getAccountDetails: () => {
       return axiosInstance.get("/api/account");
+    },
+    saveSettings(settings: AccountSettings) {
+      return axiosInstance.patch("/api/account/settings", settings);
     },
   },
   ladder: {
@@ -159,10 +165,17 @@ const API = {
     },
   },
   chat: {
-    getChat: (number: number) => {
+    getChat: (chatType: ChatType, number?: number) => {
       const params = new URLSearchParams();
-      params.append("number", number.toString());
-      return axiosInstance.get("/api/chat", { params });
+      if (number !== undefined) {
+        params.append("number", number.toString());
+      }
+      return axiosInstance.get(`/api/chat/${chatType.toLowerCase()}`, {
+        params,
+      });
+    },
+    getSuggestions() {
+      return axiosInstance.get(`/api/chat/suggestions`);
     },
   },
   round: {
@@ -179,16 +192,37 @@ const API = {
       params.append("username", username);
       return axiosInstance.get("/api/moderation/search/user", { params });
     },
-    searchAltAccouunts(accountId: number) {
+    searchAltAccounts(accountId: number) {
       const params = new URLSearchParams();
       params.append("accountId", accountId.toString());
       return axiosInstance.get("/api/moderation/search/alts", { params });
+    },
+    showNameHistory(searchQuery: string, type: SearchType) {
+      const params = new URLSearchParams();
+      params.append("search", searchQuery);
+      return axiosInstance.get(`api/moderation/history/name/${type}`, {
+        params,
+      });
+    },
+  },
+  grapes: {
+    getVinegarRecords: () => {
+      return axiosInstance.get("/api/grapes/vinegar/throw/record");
+    },
+  },
+  user: {
+    getActiveUsers() {
+      return axiosInstance.get("/api/user");
+    },
+    getUser(accountId: number) {
+      return axiosInstance.get(`/api/user/${accountId}`);
     },
   },
 };
 
 let isInitialized = false;
 if (!isInitialized) {
+  // TODO: Why do we need to double call authenticationStatus ? @see store/auth.ts
   API.auth.authenticationStatus().then((_) => {
     isInitialized = true;
   });

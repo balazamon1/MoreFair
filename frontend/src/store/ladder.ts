@@ -15,24 +15,42 @@ import { useFormatter } from "~/composables/useFormatter";
 import { useToasts } from "~/composables/useToasts";
 import { SOUNDS, useSound } from "~/composables/useSound";
 import { useOptionsStore } from "~/store/options";
+import { useRoundStore } from "~/store/round";
+import { VinegarSuccessType } from "~/store/grapes";
+import {
+  useAutoPromoteTour,
+  useBiasedTour,
+  useMultiedTour,
+  usePromoteTour,
+  useStartupTour,
+  useVinegarTour,
+} from "~/composables/useTour";
 
 export enum LadderType {
   DEFAULT = "DEFAULT",
+  // Point Requirements
   TINY = "TINY",
   SMALL = "SMALL",
   BIG = "BIG",
   GIGANTIC = "GIGANTIC",
+  // Auto-promote
   FREE_AUTO = "FREE_AUTO",
   NO_AUTO = "NO_AUTO",
-  ASSHOLE = "ASSHOLE",
+  // Cost of Upgrade
   CHEAP = "CHEAP",
   EXPENSIVE = "EXPENSIVE",
+  // Bottom Grapes
   BOUNTIFUL = "BOUNTIFUL",
-  DROUGHT = "DROUGHT",
+  LAVA = "LAVA",
+  // Passing Grapes
   CONSOLATION = "CONSOLATION",
-  NO_HANDOUTS = "NO_HANDOUTS",
+  VIRUS = "VIRUS",
+  // Winning Prices
   GENEROUS = "GENEROUS",
-  STINGY = "STINGY",
+  TAXES = "TAXES",
+  // End of the Game
+  ASSHOLE = "ASSHOLE",
+  END = "END",
 }
 
 export enum LadderEventType {
@@ -45,11 +63,13 @@ export enum LadderEventType {
   PROMOTE = "PROMOTE",
   JOIN = "JOIN",
   ADD_FREE_AUTO = "ADD_FREE_AUTO",
+  UPDATE_TYPES = "UPDATE_TYPES",
 }
 
 export type LadderData = {
   rankers: RankerData[];
   number: number;
+  scaling: number;
   types: LadderType[];
   basePointsToPromote: string;
 };
@@ -57,6 +77,7 @@ export type LadderData = {
 export type LadderState = {
   rankers: Ranker[];
   number: number;
+  scaling: number;
   types: Set<LadderType>;
   basePointsToPromote: Decimal;
 };
@@ -73,6 +94,7 @@ export const useLadderStore = defineStore("ladder", () => {
   const state = reactive<LadderState>({
     rankers: <Ranker[]>[],
     number: 1,
+    scaling: 1,
     types: new Set<LadderType>([LadderType.DEFAULT]),
     basePointsToPromote: new Decimal(0),
   });
@@ -80,10 +102,10 @@ export const useLadderStore = defineStore("ladder", () => {
 
   const getters = reactive({
     yourRanker: computed<Ranker | undefined>(() =>
-      state.rankers.find((r) => r.accountId === accountStore.state.accountId)
+      state.rankers.find((r) => r.accountId === accountStore.state.accountId),
     ),
     activeRankers: computed<number>(
-      () => state.rankers.filter((r) => r.growing).length
+      () => state.rankers.filter((r) => r.growing).length,
     ),
     formattedTypes: computed(() => {
       return Array.from(state.types).join(",");
@@ -92,7 +114,7 @@ export const useLadderStore = defineStore("ladder", () => {
       let result = state.rankers;
       if (optionsStore.state.ladder.hidePromotedPlayers.value) {
         result = result.filter(
-          (r) => r.growing || r.accountId === getters.yourRanker?.accountId
+          (r) => r.growing || r.accountId === getters.yourRanker?.accountId,
         );
       }
 
@@ -101,7 +123,7 @@ export const useLadderStore = defineStore("ladder", () => {
           (r) =>
             r.bias !== 0 ||
             r.multi !== 1 ||
-            r.accountId === getters.yourRanker?.accountId
+            r.accountId === getters.yourRanker?.accountId,
         );
       }
 
@@ -139,7 +161,7 @@ export const useLadderStore = defineStore("ladder", () => {
 
   function getLadder(ladderNumber: number) {
     isInitialized.value = true;
-    api.ladder
+    return api.ladder
       .getLadder(ladderNumber)
       .then((res) => {
         const data: LadderData = res.data;
@@ -152,6 +174,7 @@ export const useLadderStore = defineStore("ladder", () => {
           state.types.add(s);
         });
         state.number = data.number;
+        state.scaling = data.scaling;
         state.basePointsToPromote = new Decimal(data.basePointsToPromote);
 
         stomp.addCallback(
@@ -159,14 +182,23 @@ export const useLadderStore = defineStore("ladder", () => {
           "fair_ladder_events",
           (body) => {
             ladderEvents.push(body);
-          }
+          },
         );
 
         stomp.addCallback(
           stomp.callbacks.onTick,
           "fair_ladder_calculateTick",
-          (body: OnTickBody) => calculateTick(body.delta)
+          (body: OnTickBody) => calculateTick(body.delta),
         );
+
+        const tour = usePromoteTour();
+        if (
+          state.number >= 2 &&
+          !tour.flags.value.shownPromoted &&
+          tour.flags.value.shownVinegar
+        ) {
+          tour.start();
+        }
       })
       .catch((_) => {
         isInitialized.value = false;
@@ -179,52 +211,57 @@ export const useLadderStore = defineStore("ladder", () => {
   }
 
   function calculateTick(deltaSeconds: number) {
-    const wasFirst = getters.yourRanker?.rank === 1;
-
     handleEvents();
     ladderEvents.length = 0;
 
-    const delta = new Decimal(deltaSeconds);
-    state.rankers.sort((a, b) => b.points.cmp(a.points));
+    const rankers = state.rankers.map((ranker) => new Ranker({ ...ranker }));
+    const yourRanker = rankers.find(
+      (r) => r.accountId === accountStore.state.accountId,
+    );
 
-    for (let i = 0; i < state.rankers.length; i++) {
-      state.rankers[i].rank = i + 1;
+    const wasFirst = yourRanker?.rank === 1;
+
+    const delta = new Decimal(deltaSeconds);
+    rankers.sort((a, b) => b.points.cmp(a.points));
+
+    for (let i = 0; i < rankers.length; i++) {
+      rankers[i].rank = i + 1;
 
       // If ranker still on ladder
-      if (state.rankers[i].growing) {
+      if (rankers[i].growing) {
         // Power & Points
-        if (state.rankers[i].rank !== 1) {
-          state.rankers[i].power = Object.freeze(
-            state.rankers[i].power
-              .add(state.rankers[i].getPowerPerSecond().mul(delta))
-              .floor()
+        if (rankers[i].rank !== 1) {
+          rankers[i].power = Object.freeze(
+            rankers[i].power
+              .add(rankers[i].getPowerPerSecond().mul(delta))
+              .floor(),
           );
         }
-        state.rankers[i].points = Object.freeze(
-          state.rankers[i].points.add(state.rankers[i].power.mul(delta).floor())
+        rankers[i].points = Object.freeze(
+          rankers[i].points.add(rankers[i].power.mul(delta).floor()),
         );
 
         for (let j = i - 1; j >= 0; j--) {
-          const currentRanker = state.rankers[j + 1];
-          if (currentRanker.points.cmp(state.rankers[j].points) > 0) {
+          const currentRanker = rankers[j + 1];
+          if (currentRanker.points.cmp(rankers[j].points) > 0) {
             // Move 1 position up and move the ranker there 1 Position down
 
             // Move other Ranker 1 Place down
-            state.rankers[j].rank = j + 2;
+            rankers[j].rank = j + 2;
             if (
-              state.rankers[j].growing &&
-              state.rankers[j].accountId === getters.yourRanker?.accountId &&
-              state.rankers[j].multi > 1
+              rankers[j].growing &&
+              rankers[j].accountId === yourRanker?.accountId &&
+              rankers[j].multi > 1
             ) {
-              state.rankers[j].grapes = Object.freeze(
-                state.rankers[j].grapes.add(ladderUtils.getPassingGrapes())
+              rankers[j].grapes = Object.freeze(
+                rankers[j].grapes.add(ladderUtils.getPassingGrapes()).max(0),
               );
             }
-            state.rankers[j + 1] = state.rankers[j];
+            rankers[j + 1] = rankers[j];
 
             // Move current Ranker 1 Place up
             currentRanker.rank = j + 1;
-            state.rankers[j] = currentRanker;
+            rankers[j] = currentRanker;
           } else {
             break;
           }
@@ -232,34 +269,84 @@ export const useLadderStore = defineStore("ladder", () => {
       }
     }
 
-    const yourRanker = getters.yourRanker;
-    if (yourRanker !== undefined && yourRanker.growing) {
+    state.rankers = rankers;
+
+    if (yourRanker?.growing) {
       if (yourRanker.rank !== 1) {
+        const vinegarAdded = yourRanker.grapes
+          .mul(accountStore.state.settings.vinegarSplit)
+          .div(100);
+
         yourRanker.vinegar = Object.freeze(
-          yourRanker.vinegar.add(yourRanker.grapes.mul(deltaSeconds).floor())
+          yourRanker.vinegar.add(vinegarAdded.mul(deltaSeconds).floor()),
+        );
+
+        const wineAdded = yourRanker.grapes
+          .mul(100 - accountStore.state.settings.vinegarSplit)
+          .mul(3)
+          .div(100);
+        yourRanker.wine = Object.freeze(
+          yourRanker.wine.add(wineAdded.mul(deltaSeconds).floor()),
         );
       }
       if (yourRanker.rank === 1 && ladderUtils.isLadderPromotable.value) {
         yourRanker.vinegar = Object.freeze(
           yourRanker.vinegar
-            .mul(Decimal.pow(new Decimal(0.9975), deltaSeconds))
-            .floor()
+            .mul(new Decimal(Math.pow(0.9975, deltaSeconds)))
+            .floor(),
+        );
+
+        yourRanker.wine = Object.freeze(
+          yourRanker.wine
+            .mul(new Decimal(Math.pow(0.9975, deltaSeconds)))
+            .floor(),
         );
       }
 
-      if (
-        yourRanker.rank === state.rankers.length &&
-        state.rankers.length >= 1
-      ) {
+      if (yourRanker.rank === rankers.length && rankers.length >= 1) {
         yourRanker.grapes = Object.freeze(
-          yourRanker.grapes.add(new Decimal(ladderUtils.getBottomGrapes()))
+          yourRanker.grapes
+            .add(new Decimal(ladderUtils.getBottomGrapes()))
+            .max(0),
         );
       }
     }
 
-    const isFirst = getters.yourRanker?.rank === 1;
+    /* console.log(
+      deltaSeconds,
+      yourRanker?.grapes.toNumber(),
+      yourRanker?.vinegar.toNumber(),
+      yourRanker?.wine.toNumber(),
+    ); */
+
+    const isFirst = yourRanker?.rank === 1;
     if (isFirst && !wasFirst) {
       useSound(SOUNDS.GOT_FIRST).play();
+    }
+
+    let tour = useStartupTour();
+    if (!tour.flags.value.shownStartup) {
+      tour.start();
+    }
+
+    tour = useAutoPromoteTour();
+    if (
+      !tour.flags.value.shownAutoPromote &&
+      tour.flags.value.shownMultied &&
+      yourRanker &&
+      yourRanker.points.mul(100).cmp(rankers[0].points) > 0
+    ) {
+      tour.start();
+    }
+
+    tour = useVinegarTour();
+    if (
+      !tour.flags.value.shownVinegar &&
+      tour.flags.value.shownAutoPromote &&
+      yourRanker &&
+      yourRanker.points.mul(10).cmp(rankers[0].points) > 0
+    ) {
+      tour.start();
     }
   }
 
@@ -293,8 +380,8 @@ export const useLadderStore = defineStore("ladder", () => {
           ranker.autoPromote = true;
           ranker.grapes = Object.freeze(
             ranker.grapes.sub(
-              new Decimal(ladderUtils.getAutoPromoteCost(ranker.rank))
-            )
+              new Decimal(ladderUtils.getAutoPromoteCost(ranker.rank)),
+            ),
           );
           break;
         case LadderEventType.THROW_VINEGAR:
@@ -303,7 +390,7 @@ export const useLadderStore = defineStore("ladder", () => {
         case LadderEventType.SOFT_RESET_POINTS:
           ranker.points = Object.freeze(new Decimal(0));
           ranker.power = Object.freeze(
-            ranker.power.div(new Decimal(2)).floor()
+            ranker.power.div(new Decimal(2)).floor(),
           );
           break;
         case LadderEventType.PROMOTE:
@@ -321,12 +408,30 @@ export const useLadderStore = defineStore("ladder", () => {
           state.types.add(LadderType.FREE_AUTO);
           useToasts(
             `Since other rankers breached another Ladder, everyone on this ladder got gifted a free auto promote! (No Refunds)`,
-            { autoClose: 60 }
+            { autoClose: 60 },
           );
+          break;
+        case LadderEventType.UPDATE_TYPES:
+          state.types.clear();
+          event.data.forEach((s: LadderType) => {
+            state.types.add(s);
+          });
           break;
         default:
           console.error("Unknown event type", event);
           break;
+      }
+
+      if (event.eventType === LadderEventType.BUY_BIAS) {
+        const tour = useBiasedTour();
+        if (tour.flags.value.shownStartup && !tour.flags.value.shownBiased) {
+          tour.start();
+        }
+      } else if (event.eventType === LadderEventType.BUY_MULTI) {
+        const tour = useMultiedTour();
+        if (tour.flags.value.shownBiased && !tour.flags.value.shownMultied) {
+          tour.start();
+        }
       }
     }
   }
@@ -334,27 +439,78 @@ export const useLadderStore = defineStore("ladder", () => {
   function handleThrowVinegarEvent(ranker: Ranker, event: OnLadderEventBody) {
     if (getters.yourRanker === undefined) return;
     const vinegarThrown = new Decimal(event.data.amount);
+    const percentage = event.data.percentage;
+    const success: VinegarSuccessType = event.data.success;
+
     if (ranker.accountId === getters.yourRanker.accountId) {
-      ranker.vinegar = Object.freeze(new Decimal(0));
+      // THROWER
+
+      let restoredVinegar = new Decimal(0);
+      if (
+        success === VinegarSuccessType.SUCCESS ||
+        success === VinegarSuccessType.SHIELD_DEFENDED
+      ) {
+        restoredVinegar = getters.yourRanker.vinegar
+          .mul(useRoundStore().state.settings.minVinegarThrown)
+          .div(200);
+      } else if (
+        success === VinegarSuccessType.DOUBLE_SUCCESS ||
+        success === VinegarSuccessType.SUCCESS_PLUS
+      ) {
+        restoredVinegar = getters.yourRanker.vinegar
+          .mul(useRoundStore().state.settings.minVinegarThrown)
+          .div(100);
+      }
+
+      ranker.vinegar = Object.freeze(
+        Decimal.max(
+          new Decimal(0),
+          ranker.vinegar.sub(vinegarThrown).add(restoredVinegar),
+        ),
+      );
       return;
     }
 
     if (event.data.targetId === getters.yourRanker.accountId) {
+      // DEFENDED
+      let passedVinegar = vinegarThrown;
+      if (
+        success === VinegarSuccessType.SHIELDED ||
+        success === VinegarSuccessType.SHIELD_DEFENDED ||
+        success === VinegarSuccessType.DOUBLE_SUCCESS
+      ) {
+        // SHIELD - DEFENSE
+        passedVinegar = Decimal.max(
+          passedVinegar.sub(getters.yourRanker.wine),
+          new Decimal(0),
+        );
+        getters.yourRanker.wine = Object.freeze(new Decimal(0));
+      }
+
+      let subtractedVinegar = passedVinegar;
+      if (
+        success === VinegarSuccessType.DEFENDED ||
+        success === VinegarSuccessType.SHIELD_DEFENDED
+      ) {
+        // VINEGAR-DEFENSE
+        subtractedVinegar = subtractedVinegar.mul(percentage).div(100);
+      }
+
       getters.yourRanker.vinegar = Object.freeze(
         Decimal.max(
-          getters.yourRanker.vinegar.sub(vinegarThrown),
-          new Decimal(0)
-        )
+          getters.yourRanker.vinegar.sub(subtractedVinegar),
+          new Decimal(0),
+        ),
       );
       useToasts(
-        `${ranker.username} (#${ranker.accountId}) ${
-          event.data.success ? "successfully" : ""
-        } threw  ${useFormatter(vinegarThrown)} vinegar at you!`
+        `${ranker.username} (#${ranker.accountId}) threw ${useFormatter(
+          vinegarThrown,
+        )} (${percentage}%) vinegar at you!`,
       );
       chatStore.actions.addSystemMessage(
-        `{@} saw {@} throwing vinegar at {@}. They've ${
-          event.data.success ? "successfully" : ""
-        } used ${useFormatter(vinegarThrown)} vinegar!`,
+        `{@} saw {@} throwing vinegar at {@}. They've used ${useFormatter(
+          vinegarThrown,
+        )} (${percentage}%) vinegar!`,
         JSON.stringify([
           { u: "Chad", i: 0, id: 1 },
           { u: ranker.username, i: 8, id: ranker.accountId },
@@ -363,7 +519,7 @@ export const useLadderStore = defineStore("ladder", () => {
             i: 32,
             id: getters.yourRanker.accountId,
           },
-        ])
+        ]),
       );
     }
   }

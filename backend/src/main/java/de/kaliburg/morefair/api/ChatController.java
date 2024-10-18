@@ -1,25 +1,23 @@
 package de.kaliburg.morefair.api;
 
-import de.kaliburg.morefair.FairConfig;
-import de.kaliburg.morefair.account.AccountEntity;
-import de.kaliburg.morefair.account.AccountService;
+import de.kaliburg.morefair.account.model.AccountEntity;
+import de.kaliburg.morefair.account.services.AccountService;
 import de.kaliburg.morefair.api.utils.RequestThrottler;
-import de.kaliburg.morefair.api.utils.WsUtils;
 import de.kaliburg.morefair.api.websockets.messages.WsMessage;
-import de.kaliburg.morefair.data.ModMessageDto;
-import de.kaliburg.morefair.game.chat.ChatDto;
-import de.kaliburg.morefair.game.chat.ChatEntity;
-import de.kaliburg.morefair.game.chat.ChatService;
-import de.kaliburg.morefair.game.chat.MessageEntity;
-import de.kaliburg.morefair.game.chat.MessageService;
-import de.kaliburg.morefair.game.round.LadderService;
-import de.kaliburg.morefair.game.round.RankerEntity;
-import de.kaliburg.morefair.game.round.RankerService;
-import de.kaliburg.morefair.game.round.RoundService;
+import de.kaliburg.morefair.chat.model.ChatEntity;
+import de.kaliburg.morefair.chat.model.MessageEntity;
+import de.kaliburg.morefair.chat.model.types.ChatType;
+import de.kaliburg.morefair.chat.services.ChatService;
+import de.kaliburg.morefair.chat.services.MessageService;
+import de.kaliburg.morefair.chat.services.SuggestionsService;
+import de.kaliburg.morefair.chat.services.mapper.ChatMapper;
+import de.kaliburg.morefair.game.ladder.model.LadderEntity;
+import de.kaliburg.morefair.game.ladder.services.LadderService;
+import de.kaliburg.morefair.game.ladder.services.LadderTickService;
+import de.kaliburg.morefair.game.ranker.services.RankerService;
 import de.kaliburg.morefair.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +27,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
@@ -38,66 +37,89 @@ import org.springframework.web.bind.annotation.RequestParam;
 @RequiredArgsConstructor
 public class ChatController {
 
-  public static final String PRIVATE_EVENTS_DESTINATION = "/chat/event";
-  public static final String TOPIC_EVENTS_DESTINATION = "/chat/event/{number}";
-  private static final String APP_CHAT_DESTINATION = "/chat/{number}";
-  private final AccountService accountService;
-  private final RankerService rankerService;
-  private final WsUtils wsUtils;
-  private final RequestThrottler throttler;
-  private final RoundService roundService;
-  private final ChatService chatService;
-  private final FairConfig config;
-  private final LadderService ladderService;
-  private final MessageService messageService;
+  public static final String PRIVATE_EVENTS_DESTINATION = "/chat/events";
+  public static final String TOPIC_EVENTS_DESTINATION = "/chat/events/{number}";
 
-  @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<?> initChat(@RequestParam("number") Integer number,
+  private final AccountService accountService;
+  private final RequestThrottler throttler;
+  private final ChatService chatService;
+  private final LadderService ladderService;
+  private final LadderTickService ladderTickService;
+  private final MessageService messageService;
+  private final ChatMapper chatMapper;
+  private final SuggestionsService suggestionsService;
+  private final RankerService rankerService;
+
+  @GetMapping(value = "/{type}", produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<?> getChat(
+      @PathVariable("type") String typeString,
+      @RequestParam(value = "number", defaultValue = "0", required = false) Integer number,
       Authentication authentication) {
-    try {
-      AccountEntity account = accountService.find(SecurityUtils.getUuid(authentication));
+    try (var ignored = ladderTickService.getSemaphore().enter()) {
+      ChatType type = ChatType.valueOf(typeString.toUpperCase());
+
+      AccountEntity account = accountService.findByUuid(SecurityUtils.getUuid(authentication))
+          .orElse(null);
       if (account == null || account.isBanned()) {
         return new ResponseEntity<>(HttpStatus.FORBIDDEN);
       }
-      log.trace("/app/chat/init/{} from {}#{}", number, account.getDisplayName(), account.getId());
 
-      RankerEntity ranker = ladderService.findFirstActiveRankerOfAccountThisRound(account);
-      if (ranker == null) {
-        ranker = roundService.createNewRanker(account);
+      if (type == ChatType.LADDER && number != null) {
+        int ladderNumber = rankerService.findHighestActiveRankerOfAccount(account)
+            .map(r -> ladderService.findLadderById(r.getLadderId()).orElseThrow())
+            .map(LadderEntity::getNumber)
+            .orElse(1);
+
+        if (!account.isMod() && number > ladderNumber) {
+          return new ResponseEntity<>(HttpStatus.FORBIDDEN);
+        }
       }
 
-      if (account.isMod() || number <= ranker.getLadder().getNumber()) {
-        ChatEntity chatEntity = chatService.find(number);
-        ChatDto c = new ChatDto(chatEntity, config);
-        return new ResponseEntity<>(c, HttpStatus.OK);
-      } else {
-        return new ResponseEntity<>(HttpStatus.FORBIDDEN);
-      }
-
+      ChatEntity chatEntity = type.isParameterized() ? chatService.find(type, number) :
+          chatService.find(type);
+      return new ResponseEntity<>(chatMapper.convertToChatDto(chatEntity), HttpStatus.OK);
     } catch (IllegalArgumentException e) {
       return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
     } catch (Exception e) {
-      log.error(e.getMessage());
-      e.printStackTrace();
+      log.error(e.getMessage(), e);
       return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  @MessageMapping(APP_CHAT_DESTINATION)
+  @GetMapping(value = "/suggestions")
+  public ResponseEntity<?> getSuggestions() {
+    try (var ignored = ladderTickService.getSemaphore().enter()) {
+      return ResponseEntity.ok(suggestionsService.getAllSuggestions());
+    } catch (Exception e) {
+      log.error(e.getMessage(), e);
+      return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @MessageMapping("/chat/{type}")
+  public void postChat(@DestinationVariable("type") String typeString,
+      @Payload WsMessage wsMessage, Authentication authentication) {
+    postChat(typeString, null, wsMessage, authentication);
+  }
+
+  @MessageMapping("/chat/{type}/{number}")
   public void postChat(
+      @DestinationVariable("type") String typeString,
       @DestinationVariable("number") Integer number,
       @Payload WsMessage wsMessage,
       Authentication authentication
   ) {
     try {
-      String message = wsMessage.getContent();
-      String metadata = wsMessage.getMetadata();
 
-      if (ObjectUtils.anyNull(message, metadata)) {
-        throw new IllegalArgumentException("message or metadata is null");
+      String message = wsMessage.getContent();
+
+      if (message == null) {
+        log.error("message or metadata is null");
+        return;
       }
 
       message = message.trim();
+
       if (message.length() > 280) {
         message = message.substring(0, 280);
       }
@@ -106,24 +128,31 @@ public class ChatController {
         return;
       }
 
-      AccountEntity account = accountService.find(SecurityUtils.getUuid(authentication));
-      if (account == null || account.isMuted()) {
+      AccountEntity account = accountService.findByUuid(SecurityUtils.getUuid(authentication))
+          .orElse(null);
+      if (account == null || account.isMuted() || !throttler.canPostMessage(account)) {
         return;
       }
-      RankerEntity ranker = ladderService.findFirstActiveRankerOfAccountThisRound(account);
-      if (account.isMod()
-          || (number <= ranker.getLadder().getNumber() && throttler.canPostMessage(account))) {
-        MessageEntity messageEntity = chatService.sendMessageToChat(account, number, message,
-            metadata);
-        wsUtils.convertAndSendToTopic(ModerationController.TOPIC_CHAT_EVENTS_DESTINATION,
-            new ModMessageDto(messageEntity, config));
-        log.info("[CHAT {}] {} (#{}): {}", number, account.getDisplayName(), account.getId(),
-            message);
+
+      ChatType type = ChatType.valueOf(typeString.toUpperCase());
+      ChatEntity chat = chatService.find(type, number);
+      if (type == ChatType.LADDER && number != null) {
+        int ladderNumber = rankerService.findHighestActiveRankerOfAccount(account)
+            .map(r -> ladderService.findLadderById(r.getLadderId()).orElseThrow())
+            .map(LadderEntity::getNumber)
+            .orElse(1);
+
+        if (!account.isMod() && number > ladderNumber) {
+          return;
+        }
       }
 
+      MessageEntity messageEntity = messageService.create(account, chat, message,
+          wsMessage.getMetadata());
+      log.info("[CHAT '{}'] {} (#{}): {}", chat.getIdentifier(), account.getDisplayName(),
+          account.getId(), messageEntity.getMessage());
     } catch (Exception e) {
-      log.error(e.getMessage());
-      e.printStackTrace();
+      log.error(e.getMessage(), e);
     }
   }
 }

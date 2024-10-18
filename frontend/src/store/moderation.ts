@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { computed, reactive } from "vue";
 import { useAPI } from "~/composables/useAPI";
 import { useStomp } from "~/composables/useStomp";
 import { useToasts } from "~/composables/useToasts";
@@ -26,18 +27,64 @@ export class ChatLogMessage extends Message implements ChatLogMessageData {
   }
 }
 
+export type NameChange = {
+  accountId: number;
+  displayName: string;
+  currentName: string;
+  timestamp: number;
+};
+
+export type UserEvent = {
+  timestamp: number;
+};
+
+export enum SearchType {
+  DISPLAY_NAME = "DISPLAY_NAME",
+  ACCOUNT_ID = "ACCOUNT_ID",
+}
+
+export type UserSearchResult = {
+  accountId: number;
+  displayName: string;
+  lastLogin: number;
+};
+
+export type ModerationState = {
+  chatLog: Message[];
+  usernameSearchInput: string;
+  accountIdSearchInput: string;
+  searchType: SearchType;
+  searchResults: UserSearchResult[];
+  nameChangeLog: NameChange[];
+  userEventLog: UserEvent[];
+};
+
 export const useModerationStore = defineStore("moderation", () => {
   const api = useAPI();
   const stomp = useStomp();
   const accountStore = useAccountStore();
 
   const isInitialized = ref<boolean>(false);
-  const state = reactive({
-    chatLog: <ChatLogMessage[]>[],
-    searchResults: "",
-    altSearchResults: "",
+  const state = reactive<ModerationState>({
+    chatLog: <Message[]>[],
+    usernameSearchInput: "",
+    accountIdSearchInput: "0",
+    searchType: SearchType.DISPLAY_NAME,
+    searchResults: [],
+    nameChangeLog: [],
+    userEventLog: [],
   });
-  const getters = reactive({});
+  const getters = reactive({
+    allMessages: computed<Message[]>(() => {
+      const result = [] as Message[];
+      result.push(...(state.chatLog as Message[]));
+      result.sort((a, b) => b.timestamp - a.timestamp);
+      result.length = Math.min(result.length, 100);
+      result.reverse();
+
+      return result;
+    }),
+  });
 
   async function init() {
     if (isInitialized.value) return Promise.resolve();
@@ -53,7 +100,7 @@ export const useModerationStore = defineStore("moderation", () => {
         data.forEach((message) => {
           const msg = new ChatLogMessage(message);
           msg.setFlag("old");
-          state.chatLog.unshift(msg);
+          addMessage(msg);
         });
 
         stomp.addCallback(
@@ -61,7 +108,7 @@ export const useModerationStore = defineStore("moderation", () => {
           "fair_chat_event",
           (body) => {
             addMessage(body);
-          }
+          },
         );
 
         return Promise.resolve(res);
@@ -74,7 +121,7 @@ export const useModerationStore = defineStore("moderation", () => {
   }
 
   function addMessage(body: ChatLogMessageData) {
-    const msg = new ChatLogMessage(body);
+    const msg = new Message(body);
     if (state.chatLog.length > 50) {
       state.chatLog.shift();
     }
@@ -87,7 +134,7 @@ export const useModerationStore = defineStore("moderation", () => {
       }
     });
 
-    if (isMentioned) {
+    if (isMentioned && !msg.hasFlag("old")) {
       useSound(SOUNDS.MENTION).play();
     }
   }
@@ -96,8 +143,8 @@ export const useModerationStore = defineStore("moderation", () => {
     return api.moderation
       .searchUsername(username)
       .then((res) => {
-        const data: { [key: number]: string } = res.data;
-        state.searchResults = JSON.stringify(data);
+        const data: { users: UserSearchResult[] } = res.data;
+        state.searchResults = data.users;
         return Promise.resolve(res);
       })
       .catch((err) => {
@@ -109,10 +156,26 @@ export const useModerationStore = defineStore("moderation", () => {
 
   function searchAltAccounts(accountId: number) {
     return api.moderation
-      .searchAltAccouunts(accountId)
+      .searchAltAccounts(accountId)
       .then((res) => {
-        const data: { [key: number]: string } = res.data;
-        state.altSearchResults = JSON.stringify(data);
+        const data: { users: UserSearchResult[] } = res.data;
+        state.searchResults = data.users;
+        return Promise.resolve(res);
+      })
+      .catch((err) => {
+        useToasts(err.message, {
+          type: "error",
+        });
+        return Promise.reject(err);
+      });
+  }
+
+  function searchNameHistory(search: string, type: SearchType) {
+    return api.moderation
+      .showNameHistory(search, type)
+      .then((res) => {
+        const data: { list: NameChange[] } = res.data;
+        state.nameChangeLog = data.list;
         return Promise.resolve(res);
       })
       .catch((err) => {
@@ -143,6 +206,23 @@ export const useModerationStore = defineStore("moderation", () => {
     useStomp().wsApi.moderation.mod(accountId);
   }
 
+  function search(type: SearchType) {
+    state.searchType = type;
+    if (type === SearchType.DISPLAY_NAME) {
+      searchUsername(state.usernameSearchInput).then();
+      searchNameHistory(
+        state.usernameSearchInput,
+        SearchType.DISPLAY_NAME,
+      ).then();
+    } else if (type === SearchType.ACCOUNT_ID) {
+      const accountId = parseInt(state.accountIdSearchInput);
+      if (isNaN(accountId)) return;
+
+      searchAltAccounts(accountId).then();
+      searchNameHistory(String(accountId), SearchType.ACCOUNT_ID).then();
+    }
+  }
+
   return {
     state,
     getters,
@@ -155,6 +235,7 @@ export const useModerationStore = defineStore("moderation", () => {
       rename,
       free,
       mod,
+      search,
     },
   };
 });

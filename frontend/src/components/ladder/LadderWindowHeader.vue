@@ -17,7 +17,7 @@
           </div>
           <div class="whitespace-nowrap">
             Ladders: {{ accountStore.state.highestCurrentLadder }}/{{
-              roundStore.state.assholeLadder
+              formattedAssholeLadder
             }}
             ({{ roundStore.state.topLadder }})
           </div>
@@ -47,9 +47,9 @@
       </ExtendedInformationModal>
       <div class="flex flex-row gap-6 text-xs">
         <div class="flex flex-col">
-          <div class="whitespace-nowrap" data-tutorial="info">
+          <div class="whitespace-nowrap" data-tutorial="ladders">
             Ladders: {{ accountStore.state.highestCurrentLadder }}/{{
-              roundStore.state.assholeLadder
+              formattedAssholeLadder
             }}
             ({{ roundStore.state.topLadder }})
           </div>
@@ -112,6 +112,12 @@ const ladderStore = useLadderStore();
 const roundStore = useRoundStore();
 const accountStore = useAccountStore();
 
+const formattedAssholeLadder = computed(() => {
+  return roundStore.state.topLadder > 100
+    ? 200
+    : roundStore.state.assholeLadder;
+});
+
 const formattedRoundPointsForPromotion = computed<string>(() => {
   return useFormatter(roundStore.state.settings.basePointsForPromote);
 });
@@ -121,6 +127,6 @@ const formattedPointsForPromotion = computed<string>(() => {
 });
 
 const isAssholeLadderOpen = computed<boolean>(
-  () => roundStore.state.topLadder >= roundStore.state.assholeLadder
+  () => roundStore.state.topLadder >= roundStore.state.assholeLadder,
 );
 </script>

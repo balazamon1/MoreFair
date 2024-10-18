@@ -3,7 +3,15 @@ import { config, library } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 import { faDiscord } from "@fortawesome/free-brands-svg-icons";
 import { defineNuxtPlugin } from "nuxt/app";
-import { faShieldHalved } from "@fortawesome/free-solid-svg-icons";
+import {
+  faCheck,
+  faCheckDouble,
+  faPlus,
+  faShieldHalved,
+  faUmbrella,
+  faWineBottle,
+  faX,
+} from "@fortawesome/free-solid-svg-icons";
 
 // This is important, we are going to let Nuxt worry about the CSS
 config.autoAddCss = false;
@@ -12,6 +20,12 @@ config.autoAddCss = false;
 // can add other styles or just individual icons.
 library.add(faDiscord);
 library.add(faShieldHalved);
+library.add(faWineBottle);
+library.add(faUmbrella);
+library.add(faCheck);
+library.add(faCheckDouble);
+library.add(faX);
+library.add(faPlus);
 
 export default defineNuxtPlugin((nuxtApp) => {
   nuxtApp.vueApp.component("font-awesome-icon", FontAwesomeIcon);

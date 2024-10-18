@@ -47,9 +47,11 @@
       class="flex flex-row text-xs lg:text-sm w-full justify-between text-text-light"
     >
       <p data-tutorial="grapes">
-        {{ yourFormattedGrapes }}/<span class="text-text-dark">{{
-          yourAutoPromoteCostFormatted
-        }}</span>
+        {{ yourFormattedGrapes }}/<span
+          class="text-text-dark"
+          data-tutorial="autoPromoteCost"
+          >{{ yourAutoPromoteCostFormatted }}</span
+        >
         {{ lang("info.grapes") }}
         <span
           v-if="
@@ -71,6 +73,7 @@
         :class="{ 'border-r-0': isAutoPromoteButtonDisabled }"
         :disabled="isAutoPromoteButtonDisabled"
         class="w-full rounded-r-none whitespace-nowrap"
+        data-tutorial="autoPromote"
         @click="buyAutoPromote"
       >
         {{ lang("autopromote") }}
@@ -80,9 +83,10 @@
         :class="{ 'border-l-1': isAutoPromoteButtonDisabled }"
         :disabled="isVinegarButtonDisabled"
         class="w-full rounded-l-none border-l-0 whitespace-nowrap"
+        data-tutorial="throwVinegar"
         @click="throwVinegar"
       >
-        {{ lang("vinegar") }}
+        {{ vinegarButtonLabel }}
       </FairButton>
       <FairButton
         v-else
@@ -95,14 +99,19 @@
       </FairButton>
     </div>
     <div
-      class="flex flex-row text-xs lg:text-sm w-full justify-between text-text-light"
+      class="flex flex-row text-xs lg:text-sm w-full justify-between text-text-light whitespace-nowrap"
     >
       <p>
-        {{ lang("info.promoteAt") }}
-        <span class="text-text-dark">{{ pointsNeededToPromoteFormatted }}</span>
+        {{ lang("info.promoteAt") }} @<span class="text-text-dark">{{
+          pointsNeededToPromoteFormatted
+        }}</span>
         {{ lang("info.points") }} ({{ yourPercentageToPromotion }}%) ({{
           yourTimeToPromotion
         }})
+      </p>
+      <p data-tutorial="wine">
+        (<span class="text-text-dark">{{ formattedWineShieldEta }}</span
+        >) {{ yourFormattedWine }} {{ lang("info.wine") }}
       </p>
     </div>
   </div>
@@ -118,15 +127,17 @@ import { LadderType, useLadderStore } from "~/store/ladder";
 import { Ranker } from "~/store/entities/ranker";
 import { useFormatter, useTimeFormatter } from "~/composables/useFormatter";
 import { useLadderUtils } from "~/composables/useLadderUtils";
-import { useRoundStore } from "~/store/round";
 import { useStomp } from "~/composables/useStomp";
 import { useEta } from "~/composables/useEta";
+import { useGrapesStore } from "~/store/grapes";
+import { useAccountStore } from "~/store/account";
 
 const lang = useLang("components.ladder.buttons");
 const optionsStore = useOptionsStore();
 const ladderStore = useLadderStore();
-const roundStore = useRoundStore();
 const ladderUtils = useLadderUtils();
+const flags = useStartupTour().flags;
+
 const isButtonLocked = computed<boolean>(() => {
   return (
     optionsStore.state.ladder.lockButtons.value || !yourRanker.value.growing
@@ -146,7 +157,7 @@ const yourPercentageToPromotion = computed<string>(() => {
   return useFormatter(
     yourRanker.value.points
       .mul(100)
-      .div(ladderUtils.getYourPointsNeededToPromote.value)
+      .div(ladderUtils.getYourPointsNeededToPromote.value),
   );
 });
 
@@ -154,7 +165,7 @@ const biasButtonLabel = computed<string>(() => {
   if (canBuyBias.value) return `+1 ${lang("bias")}`;
 
   const eta = useEta(yourRanker.value).toPoints(
-    ladderUtils.getYourBiasCost.value
+    ladderUtils.getYourBiasCost.value,
   );
   return `+${lang("bias_short")} (${useTimeFormatter(eta)})`;
 });
@@ -163,9 +174,25 @@ const multiButtonLabel = computed<string>(() => {
   if (canBuyMulti.value) return `+1 ${lang("multi")}`;
 
   const eta = useEta(yourRanker.value).toPower(
-    ladderUtils.getYourMultiCost.value
+    ladderUtils.getYourMultiCost.value,
   );
   return `+${lang("multi_short")} (${useTimeFormatter(eta)})`;
+});
+
+const vinegarButtonLabel = computed<string>(() => {
+  if (optionsStore.state.ladder.hideVinegarAndGrapes.value)
+    return `${lang("vinegar", "[Hidden]")}`;
+  const eta = useEta(yourRanker.value).toVinegarThrow();
+  if (eta === 0 || eta === Infinity) {
+    return `${lang(
+      "vinegar",
+      useFormatter(useGrapesStore().getters.selectedVinegar),
+    )}`;
+  }
+  return `${lang(
+    "vinegar",
+    yourVinegarThrowCostFormatted.value,
+  )} (${useTimeFormatter(eta)})`;
 });
 
 const yourFormattedMulti = computed<string>(() => {
@@ -187,6 +214,29 @@ const yourFormattedGrapes = computed<string>(() => {
 const yourFormattedVinegar = computed<string>(() => {
   if (optionsStore.state.ladder.hideVinegarAndGrapes.value) return "[Hidden]";
   return useFormatter(yourRanker.value.vinegar);
+});
+const yourFormattedWine = computed<string>(() => {
+  if (optionsStore.state.ladder.hideVinegarAndGrapes.value) return "[Hidden]";
+  return useFormatter(yourRanker.value.wine);
+});
+const isWineShieldActive = computed<boolean>(() => {
+  return yourRanker.value.vinegar.cmp(yourRanker.value.wine) < 0;
+});
+const formattedWineShieldEta = computed<string>(() => {
+  if (optionsStore.state.ladder.hideVinegarAndGrapes.value) return "[Hidden]";
+  if (isWineShieldActive.value) return lang("info.shielded");
+  const winePerSec = yourRanker.value.grapes
+    .mul(100 - useAccountStore().state.settings.vinegarSplit)
+    .div(50);
+  const vinegarPerSec = yourRanker.value.grapes
+    .mul(useAccountStore().state.settings.vinegarSplit)
+    .div(100);
+
+  const wineDeltaPerSec = winePerSec.sub(vinegarPerSec);
+  if (wineDeltaPerSec.cmp(0) < 0) return useTimeFormatter(Infinity);
+  const wineMissing = yourRanker.value.vinegar.sub(yourRanker.value.wine);
+  const seconds = wineMissing.div(wineDeltaPerSec).ceil();
+  return useTimeFormatter(seconds.toNumber());
 });
 
 const yourBiasCostFormatted = computed<string>(() => {
@@ -222,7 +272,10 @@ const canBuyAutoPromote = computed<boolean>(() => {
 });
 const canThrowVinegar = computed<boolean>(() => {
   return (
-    ladderUtils.getVinegarThrowCost.value.cmp(yourRanker.value.vinegar) <= 0 &&
+    ladderUtils.getVinegarThrowCost.value.cmp(
+      useGrapesStore().getters.selectedVinegar,
+    ) <= 0 &&
+    ladderStore.state.rankers.length > 0 &&
     ladderStore.state.rankers[0].growing &&
     ladderUtils.isLadderPromotable.value
   );
@@ -230,16 +283,16 @@ const canThrowVinegar = computed<boolean>(() => {
 const canPromote = computed<boolean>(() => {
   return (
     ladderUtils.getYourPointsNeededToPromote.value.cmp(
-      yourRanker.value.points
+      yourRanker.value.points,
     ) <= 0 &&
     yourRanker.value.growing &&
     ladderUtils.isLadderPromotable.value
   );
 });
 const promoteLabel = computed<string>(() => {
-  return ladderStore.state.number < roundStore.state.assholeLadder
-    ? lang("promote")
-    : lang("asshole");
+  if (ladderStore.state.types.has(LadderType.END)) return lang("wait");
+  if (ladderStore.state.types.has(LadderType.ASSHOLE)) return lang("asshole");
+  return lang("promote");
 });
 
 const pressedBiasRecently = ref<boolean>(false);
@@ -249,25 +302,35 @@ const pressedAutoPromoteRecently = ref<boolean>(false);
 const pressedPromoteRecently = ref<boolean>(false);
 
 const isBiasButtonDisabled = computed<boolean>(() => {
-  return !canBuyBias.value || isButtonLocked.value || pressedBiasRecently.value;
+  return (
+    !canBuyBias.value ||
+    isButtonLocked.value ||
+    pressedBiasRecently.value ||
+    !flags.value.shownStartup
+  );
 });
 const isMultiButtonDisabled = computed<boolean>(() => {
   return (
-    !canBuyMulti.value || isButtonLocked.value || pressedMultiRecently.value
+    !canBuyMulti.value ||
+    isButtonLocked.value ||
+    pressedMultiRecently.value ||
+    !flags.value.shownBiased
   );
 });
 const isVinegarButtonDisabled = computed<boolean>(() => {
   return (
     !canThrowVinegar.value ||
     isButtonLocked.value ||
-    pressedVinegarRecently.value
+    pressedVinegarRecently.value ||
+    !flags.value.shownVinegar
   );
 });
 const isAutoPromoteButtonDisabled = computed<boolean>(() => {
   return (
     !canBuyAutoPromote.value ||
     isButtonLocked.value ||
-    pressedAutoPromoteRecently.value
+    pressedAutoPromoteRecently.value ||
+    !flags.value.shownAutoPromote
   );
 });
 const isPromoteButtonDisabled = computed<boolean>(() => {
@@ -305,13 +368,16 @@ function buyAutoPromote(e: Event) {
 function throwVinegar(e: Event) {
   if (pressedVinegarRecently.value || !canThrowVinegar.value) return;
   pressedVinegarRecently.value = true;
-  useStomp().wsApi.ladder.throwVinegar(e);
+  useStomp().wsApi.ladder.throwVinegar(
+    e,
+    useGrapesStore().storage.vinegarThrowPercentage,
+  );
 }
 
 function promote(e: Event) {
   if (pressedPromoteRecently.value || !canPromote.value) return;
   pressedPromoteRecently.value = true;
-  if (ladderStore.state.number >= roundStore.state.assholeLadder) {
+  if (ladderStore.state.types.has(LadderType.ASSHOLE)) {
     if (confirm("Do you really wanna be an Asshole?!")) {
       useStomp().wsApi.ladder.promote(e);
     }
@@ -324,7 +390,7 @@ onMounted(() => {
   useStomp().addCallback(
     useStomp().callbacks.onTick,
     "fair_ladder_buttons",
-    handleTick
+    handleTick,
   );
 });
 </script>

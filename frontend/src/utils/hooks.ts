@@ -5,6 +5,7 @@ import { useOptionsStore } from "~/store/options";
 import { useAccountStore } from "~/store/account";
 import { useUiStore } from "~/store/ui";
 import { StompCallback, useStomp } from "~/composables/useStomp";
+import { useLadderUtils } from "~/composables/useLadderUtils";
 
 const api = {
   stores: {
@@ -15,11 +16,14 @@ const api = {
     useAccountStore: () => unpackStore(useAccountStore()),
     useUiStore: () => unpackStore(useUiStore()),
   },
+  utils: {
+    useLadderUtils: () => useLadderUtils(),
+  },
   getHooks: () => useStomp().callbacks,
   addCallback: (
     hook: StompCallback<unknown>[],
     identifier: string,
-    callback: (body: unknown) => void
+    callback: (body: unknown) => void,
   ) => useStomp().addCallback(hook, identifier, callback),
 };
 
@@ -29,7 +33,7 @@ function unpackStore(store: any) {
 }
 
 function register(func: (api: any) => void) {
-  return func(api);
+  func(api);
 }
 
 const Fair = {

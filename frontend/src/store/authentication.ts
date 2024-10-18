@@ -17,7 +17,7 @@ export const useAuthStore = defineStore("auth", () => {
   const API = useAPI();
 
   const state = reactive({
-    uuid: ref<string>(Cookies.get("_uuid") || ""),
+    uuid: ref<string>(Cookies.get("_uuid") ?? ""),
     authenticationStatus: ref<boolean>(false),
   });
 
@@ -30,7 +30,9 @@ export const useAuthStore = defineStore("auth", () => {
     }),
   });
 
-  getAuthenticationStatus().then();
+  if (!state.authenticationStatus) {
+    getAuthenticationStatus().then();
+  }
 
   // actions
   async function getAuthenticationStatus() {
@@ -247,7 +249,7 @@ export const useAuthStore = defineStore("auth", () => {
           sameSite: shouldSetSameSite() ? "strict" : "none",
         });
       else Cookies.remove("_uuid");
-    }
+    },
   );
 
   setInterval(() => {
@@ -298,7 +300,7 @@ async function checkPassword(password: string): Promise<boolean> {
       `Password is too weak.\n\n${
         zxcvbn.feedback.warning
       }\n\n${zxcvbn.feedback.suggestions.join("\n")}`,
-      { type: "error" }
+      { type: "error" },
     );
     return false;
   }

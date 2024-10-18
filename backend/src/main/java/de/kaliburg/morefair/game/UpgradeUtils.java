@@ -1,38 +1,26 @@
 package de.kaliburg.morefair.game;
 
 import de.kaliburg.morefair.FairConfig;
-import de.kaliburg.morefair.game.round.LadderType;
+import de.kaliburg.morefair.game.ladder.model.LadderEntity;
+import de.kaliburg.morefair.game.ladder.model.LadderType;
+import de.kaliburg.morefair.game.ladder.services.utils.LadderUtilsService;
+import de.kaliburg.morefair.game.round.model.RoundEntity;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
-import java.util.EnumSet;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class UpgradeUtils {
 
   private static final BigDecimal LADDER_UPGRADE_MULTIPLIER = BigDecimal.valueOf(0.5);
   private static final BigDecimal FLAT_UPGRADE_MULTIPLIER = BigDecimal.valueOf(0.5);
 
   private final FairConfig config;
-
-  public UpgradeUtils(FairConfig config) {
-    this.config = config;
-  }
-
-  /**
-   * Calculates the default cost of the next bias/multi upgrade.
-   *
-   * <p><code>cost = (ladder + 1) ^ (currentUpgrade + 1)</code>
-   *
-   * @param currentUpgrade the current amount of upgrades
-   * @param ladderNumber   the ladder where you would buy the upgrade
-   * @return the cost of the (currentUpgrade + 1)th bias/multi
-   */
-  public BigInteger buyUpgradeCost(Integer ladderNumber, Integer currentUpgrade) {
-    return buyUpgradeCost(ladderNumber, currentUpgrade, EnumSet.of(LadderType.DEFAULT));
-  }
+  private final LadderUtilsService ladderUtils;
 
   /**
    * Calculates the cost of the next bias/multi upgrade.
@@ -76,9 +64,10 @@ public class UpgradeUtils {
     return config.getBaseVinegarToThrow().multiply(BigInteger.valueOf(ladderNum));
   }
 
-  public BigInteger buyAutoPromoteCost(Integer rank, Integer ladderNum) {
-    Integer minPeople = Math.max(config.getBaseAssholeLadder(), ladderNum);
-    Integer divisor = Math.max(rank - minPeople + 1, 1);
+  public BigInteger buyAutoPromoteCost(RoundEntity round, LadderEntity ladder, Integer rank) {
+    Integer minPeople = ladderUtils.getRequiredRankerCountToUnlock(ladder);
+
+    int divisor = Math.max(rank - minPeople + 1, 1);
 
     BigDecimal decGrapes = new BigDecimal(config.getBaseGrapesToBuyAutoPromote());
     return decGrapes.divide(BigDecimal.valueOf(divisor), RoundingMode.FLOOR).toBigInteger();

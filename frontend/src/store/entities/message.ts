@@ -1,3 +1,7 @@
+import { ChatType } from "~/store/chat";
+import { useLang } from "~/composables/useLang";
+import { useDateFormatter } from "~/composables/useFormatter";
+
 export enum MessagePartType {
   plain,
   mentionUser,
@@ -19,7 +23,7 @@ export type GroupMentionMeta = {
 export type MentionMeta = GroupMentionMeta | UserMentionMeta;
 
 export function isGroupMentionMeta(
-  meta: MentionMeta
+  meta: MentionMeta,
 ): meta is GroupMentionMeta {
   return "g" in meta && "i" in meta;
 }
@@ -46,29 +50,22 @@ export type MessageData = {
   timestamp: number;
   tag: string;
   assholePoints: number;
+  ladderNumber: number;
   isMod: boolean;
+  chatType: ChatType;
 };
-
-// Set the options for the Intl.DateTimeFormat object
-const options: Intl.DateTimeFormatOptions = {
-  weekday: "short",
-  hour: "numeric",
-  minute: "numeric",
-  hour12: false,
-};
-
-// Create the Intl.DateTimeFormat object with the client's default locale
-const formatter = new Intl.DateTimeFormat(navigator.language, options);
 
 export class Message implements MessageData {
   accountId = 0;
   username = "";
   message = "";
+  ladderNumber = 0;
   metadata = "[]";
   timestamp = 0;
   tag = "";
   assholePoints = 0;
   isMod = false;
+  chatType = ChatType.GLOBAL;
   private flags: string[] = [];
 
   constructor(data: any) {
@@ -96,12 +93,16 @@ export class Message implements MessageData {
   }
 
   getTimestampString() {
-    // Create a date object with the timestamp
-    const date = new Date(0);
-    date.setUTCSeconds(this.timestamp);
+    return useDateFormatter(this.timestamp);
+  }
 
-    // Format the date using the formatter object
-    return formatter.format(date);
+  getChatTypeIdentifier(): string {
+    const lang = useLang("chat");
+    let result = lang(this.chatType.toUpperCase() + ".identifier");
+    if (this.chatType === ChatType.LADDER) {
+      result += this.ladderNumber;
+    }
+    return result;
   }
 
   getMessageParts(): MessagePart[] {
@@ -113,34 +114,33 @@ export class Message implements MessageData {
       return [new MessagePart(MessagePartType.plain, message)];
     }
 
-    const combinedMentions = metadata.sort((a, b) => a.i - b.i);
+    const combinedMentions = [...metadata].sort((a, b) => a.i - b.i);
 
     let lastIndex = 0;
     combinedMentions.forEach((m) => {
       const index = m.i;
       if (isGroupMentionMeta(m)) {
-        let name = m.g;
-        name = name.trim();
+        const name = m.g?.trim();
         if (message.slice(index, index + 3) !== "{$}") return;
 
         result.push(
           new MessagePart(
             MessagePartType.plain,
-            message.slice(lastIndex, index)
-          )
+            message.slice(lastIndex, index),
+          ),
         );
         result.push(new MessagePart(MessagePartType.mentionGroup, name));
         lastIndex = index + 3;
       } else {
-        const name = m.u.trim();
+        const name = m.u?.trim();
         const id = m.id;
         if (message.slice(index, index + 3) !== "{@}") return;
 
         result.push(
           new MessagePart(
             MessagePartType.plain,
-            message.slice(lastIndex, index)
-          )
+            message.slice(lastIndex, index),
+          ),
         );
         result.push(new MessagePart(MessagePartType.mentionUser, name));
         result.push(new MessagePart(MessagePartType.mentionUserId, String(id)));
@@ -150,7 +150,7 @@ export class Message implements MessageData {
 
     // Take the last part and add it as Plain text
     result.push(
-      new MessagePart(MessagePartType.plain, message.slice(lastIndex))
+      new MessagePart(MessagePartType.plain, message.slice(lastIndex)),
     );
 
     return result;

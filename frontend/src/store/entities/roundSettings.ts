@@ -6,6 +6,8 @@ export type RoundSettingsData = {
   baseVinegarNeededToThrow: Decimal;
   baseGrapesNeededToAutoPromote: Decimal;
   manualPromoteWaitTime: number;
+  minVinegarThrown: number;
+  maxVinegarThrown: number;
 };
 
 export class RoundSettings implements RoundSettingsData {
@@ -14,17 +16,19 @@ export class RoundSettings implements RoundSettingsData {
   baseVinegarNeededToThrow: Decimal = new Decimal(1000);
   baseGrapesNeededToAutoPromote: Decimal = new Decimal(1000);
   manualPromoteWaitTime = 30;
+  minVinegarThrown = 50;
+  maxVinegarThrown = 100;
 
   constructor(data: any) {
     Object.assign(this, data);
     this.basePointsForPromote = Object.freeze(
-      new Decimal(this.basePointsForPromote)
+      new Decimal(this.basePointsForPromote),
     );
     this.baseVinegarNeededToThrow = Object.freeze(
-      new Decimal(this.baseVinegarNeededToThrow)
+      new Decimal(this.baseVinegarNeededToThrow),
     );
     this.baseGrapesNeededToAutoPromote = Object.freeze(
-      new Decimal(this.baseGrapesNeededToAutoPromote)
+      new Decimal(this.baseGrapesNeededToAutoPromote),
     );
   }
 }

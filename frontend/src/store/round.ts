@@ -7,22 +7,28 @@ import {
 } from "~/store/entities/roundSettings";
 import { OnRoundEventBody, useStomp } from "~/composables/useStomp";
 import { useToasts } from "~/composables/useToasts";
+import { useChatStore } from "~/store/chat";
 
 export enum RoundType {
   DEFAULT = "DEFAULT",
   FAST = "FAST",
   SLOW = "SLOW",
+  SHORT = "SHORT",
+  LONG = "LONG",
   AUTO = "AUTO",
   CHAOS = "CHAOS",
   RAILROAD = "RAILROAD",
   FARMER = "FARMER",
   RACE = "RACE",
+  REVERSE_SCALING = "REVERSE_SCALING",
+  SPECIAL_100 = "SPECIAL_100",
 }
 
 export enum RoundEventType {
   RESET = "RESET",
   INCREASE_ASSHOLE_LADDER = "INCREASE_ASSHOLE_LADDER",
   INCREASE_TOP_LADDER = "INCREASE_TOP_LADDER",
+  JOIN = "JOIN",
 }
 
 export type RoundData = {
@@ -51,6 +57,8 @@ export const useRoundStore = defineStore("round", () => {
     }),
   });
 
+  init();
+
   function init() {
     if (isInitialized.value) return;
     getCurrentRound();
@@ -77,7 +85,7 @@ export const useRoundStore = defineStore("round", () => {
         stomp.addCallback(
           stomp.callbacks.onRoundEvent,
           "fair_round_events",
-          handleRoundEvent
+          handleRoundEvent,
         );
       })
       .catch((_) => {
@@ -98,9 +106,12 @@ export const useRoundStore = defineStore("round", () => {
         isInitialized.value = false;
         useToasts(
           "Chad was successful in turning back the time, the only thing left from this future is a mark on the initiates that helped in the final ritual.",
-          { autoClose: false }
+          { autoClose: false },
         );
         useStomp().reset();
+        break;
+      case RoundEventType.JOIN:
+        useChatStore().state.suggestions.push(body.data);
         break;
       default:
         console.error("Unknown event type", event);

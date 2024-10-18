@@ -7,6 +7,7 @@ import { useChatStore } from "~/store/chat";
 import { useAuthStore } from "~/store/authentication";
 import { SOUNDS, useSound } from "~/composables/useSound";
 import { useToasts } from "~/composables/useToasts";
+import { useModerationStore } from "~/store/moderation";
 
 export enum AccessRole {
   OWNER = "OWNER",
@@ -26,6 +27,10 @@ export enum AccountEventType {
   INCREASE_HIGHEST_LADDER = "INCREASE_HIGHEST_LADDER",
 }
 
+export type AccountSettings = {
+  vinegarSplit: number;
+};
+
 export type AccountData = {
   accessRole: AccessRole;
   accountId: number;
@@ -33,15 +38,15 @@ export type AccountData = {
   email: string;
   highestCurrentLadder: number;
   uuid: string;
+  settings: AccountSettings;
 };
 
 export const useAccountStore = defineStore("account", () => {
   const api = useAPI();
-
-  const ladderStore = useLadderStore();
   const stomp = useStomp();
 
   const isInitialized = ref<boolean>(false);
+
   const state = reactive<AccountData>({
     accessRole: AccessRole.PLAYER,
     accountId: 1,
@@ -49,6 +54,9 @@ export const useAccountStore = defineStore("account", () => {
     email: "",
     highestCurrentLadder: 1,
     uuid: "",
+    settings: {
+      vinegarSplit: 50,
+    },
   });
   const getters = reactive({
     isGuest: computed<boolean>(() => useAuthStore().getters.isGuest),
@@ -59,6 +67,8 @@ export const useAccountStore = defineStore("account", () => {
       );
     }),
   });
+
+  init().then();
 
   async function init() {
     if (isInitialized.value) return Promise.resolve();
@@ -71,22 +81,36 @@ export const useAccountStore = defineStore("account", () => {
   }
 
   async function getAccountDetails() {
-    return await api.account.getAccountDetails().then((res) => {
-      const data: AccountData = res.data;
-      state.accessRole = data.accessRole;
-      state.accountId = data.accountId;
-      state.highestCurrentLadder = data.highestCurrentLadder;
-      state.uuid = data.uuid;
-      state.username = data.username;
-      state.email = data.email;
-      stomp.connectPrivateChannel(state.uuid);
-      stomp.addCallback(
-        stomp.callbacks.onAccountEvent,
-        "fair_account_events",
-        handleAccountEvents
-      );
-      return Promise.resolve(res);
-    });
+    isInitialized.value = true;
+    return await api.account
+      .getAccountDetails()
+      .then((res) => {
+        const data: AccountData = res.data;
+        state.accessRole = data.accessRole;
+        state.accountId = data.accountId;
+        state.highestCurrentLadder = data.highestCurrentLadder;
+        state.uuid = data.uuid;
+        state.username = data.username;
+        state.email = data.email;
+        state.settings = data.settings;
+        stomp.connectPrivateChannel(state.uuid);
+        stomp.addCallback(
+          stomp.callbacks.onAccountEvent,
+          "fair_account_events",
+          handleAccountEvents,
+        );
+
+        if (getters.isMod) {
+          useModerationStore().actions.init();
+        }
+
+        useLadderStore().actions.init();
+        useChatStore().actions.init();
+        return Promise.resolve(res);
+      })
+      .catch((_) => {
+        isInitialized.value = false;
+      });
   }
 
   function handleAccountEvents(body: OnAccountEventBody) {
@@ -94,10 +118,10 @@ export const useAccountStore = defineStore("account", () => {
     const isYou = state.accountId === body.accountId;
     let ranker;
     if (isYou) {
-      ranker = ladderStore.getters.yourRanker;
+      ranker = useLadderStore().getters.yourRanker;
     } else {
-      ranker = ladderStore.state.rankers.find(
-        (r) => r.accountId === body.accountId
+      ranker = useLadderStore().state.rankers.find(
+        (r) => r.accountId === body.accountId,
       );
     }
 
@@ -115,13 +139,16 @@ export const useAccountStore = defineStore("account", () => {
         break;
       case AccountEventType.MUTE:
         if (isYou) state.accessRole = AccessRole.MUTED_PLAYER;
+        useChatStore().actions.clearMessages(body.accountId);
         break;
       case AccountEventType.BAN:
         if (isYou) state.accessRole = AccessRole.BANNED_PLAYER;
+        useChatStore().actions.clearMessages(body.accountId);
         break;
       case AccountEventType.INCREASE_HIGHEST_LADDER:
         useSound(SOUNDS.PROMOTION).play();
         state.highestCurrentLadder = body.data;
+        useChatStore().actions.changeChat(state.highestCurrentLadder);
         break;
       default:
         console.error("Unknown account event type: " + event);
@@ -142,6 +169,19 @@ export const useAccountStore = defineStore("account", () => {
       });
   }
 
+  async function saveSettings(settings: AccountSettings) {
+    return await api.account
+      .saveSettings(settings)
+      .then((result) => {
+        state.settings = result.data;
+        return Promise.resolve(result);
+      })
+      .catch((err) => {
+        useToasts(err.response.data.message, { type: "error" });
+        return Promise.reject(err);
+      });
+  }
+
   return {
     state,
     getters,
@@ -149,6 +189,7 @@ export const useAccountStore = defineStore("account", () => {
       init,
       reset,
       changeDisplayName,
+      saveSettings,
     },
   };
 });

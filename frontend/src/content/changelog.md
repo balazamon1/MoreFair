@@ -4,6 +4,147 @@ description: 'A list of all changes made to the game'
 
 # Changelog
 
+## 3.0.4 [PATCH]: Lava Hotfix
+
+### Improvement:
+- Disabling LAVA to its previous form (0 FloorGrapes). I would like to bring it back as a negative modifier later, but first I need time to implement a solution.
+- Also, it can still roll but behaves as DROUGHT before.
+
+<br><br><br><br><br><br><br>
+
+<details>
+<summary>Expand for the 3.0.x changelog</summary>
+
+## 3.0.3 [PATCH]: Vinegar Round Modifier Adjustments
+
+### Features
+- Can now roll positive and negative Vinegar Ladder-Mods onto the same ladder.
+
+### Improvements
+- CHAOS allows all Vinegar Ladder-Mods
+- First Person out of AH, gets the 2AH-Points for throwing on AH-Ladder for free.
+
+### Balancing
+- CONSOLATION and GENEROUS rewards decreased and brought into line with BOUNTIFUL.
+- STINGY/DROUGHT/NO_HANDOUTS modifiers buffed and renamed to TAX/LAVA/VIRUS to better reflect their changed behaviour.
+
+### Bugfixes
+- Last Person to promote from AH, now gets their promotedOn flag set correctly.
+- SLOW not appropriately affecting all kinda modifiers (f.e. NO_AUTO)
+
+## 3.0.2 [PATCH]: Reward Changes
+
+### Improvements
+- Scaling the Rewards for Winning slightly different.
+
+### Bugfixes
+- You now don't get your rewards downgraded by 1 place when winning.
+
+## 3.0.1 [PATCH]: First small fixes
+
+### Improvements
+- Skipping Ticks after big catchup tick
+- Quick-Button for Vinegar-Throw-Percentages now are 25/50/100.
+
+### Bugfixes
+- Eta To VinegarThrow now takes split into account
+- Always showing Vinegar on the Button.
+- Winning rewards are based on current ladder instead of next one
+- Removed console.log()
+- Fixing tooltips that still show 50% as minimum percentage.
+
+## 3.0.0 [MAJOR]: Season 3 Overhaul
+
+There are a few new features and a lot more small changes/improvements.
+I'll deliberately stay vague, so the community can figure details out.
+
+### Features:
+
+- A new season approaches! Asshole points will be reset and the round numbers will start again from 1.
+- Players can now choose to devote a portion of their vinegar generation to create wine at a higher rate instead.
+- Players can now choose a percentage of their vinegar to throw, from 50% to 100%, in 1% increments.
+- There is now a log for vinegar throws by/against you.
+- There are a bunch of different ladder/round modifiers that you can encounter.
+- The way asshole points are awarded has been changed.
+  - There is currently a total of 13 AH-Points to earn per round.
+- The progression of the symbols, awarded based on asshole points, have been changed.
+
+### Improvements
+
+- FAST/SLOW doesn't increase the amount of ladders in a round anymore. *This is a buff*.
+- The tutorial has been updated to reflect the modern game and explain the new vinegar mechanics.
+- The amount of players able to become assholes has been changed.
+- Asshole points will no longer have any effect on the number of ladders in a round.
+- Various other improvements and bugfixes, as well as new bugs for you to find.
+
+
+</details>
+
+<details>
+<summary>Expand for the 2.5.x changelog</summary>
+
+## 2.5.1 [PATCH]: Some smaller community-improvements
+
+### Improvements:
+- L1 can now roll all the modifiers besides NO_AUTO, FREE_AUTO and TINY
+- Improving the timestamp on messages for some localizations
+
+### Bugfixes:
+- Manually sending empty metadata won't cause an error for clients anymore
+
+## 2.5.0 [MINOR]: Ignore-List and END ladder modifier
+
+### Features:
+
+- An ignore list has been added to the Settings menu, above the theme selector.
+  - Adding a player ID (the subscript number following their name) to the list suppresses all messages from that player
+    in GLOBAL and LADDER chats.
+  - A page reload is required to clear existing messages from ignored players.
+  - Messages in the SYSTEM and MOD chats cannot be ignored.
+- Adding the END Ladder Type after the AH Ladder as preparation for an updated S3 Logic.
+- Adding Logic and Modifier for Round 200
+- Adding an internal modifier for ladder scaling and adding the REVSC round modifier, that can't appear in the game, besides for round 200
+
+### Improvements:
+
+- The combined mod chat view now shows the correct ladder number for messages originating from LADDER chats.
+- When filtering by Name, it doesn't show all the Mystery Guests in the suggestion anymore.
+- Changing some internal logic regarding the resets of the round.
+
+### Bugfixes:
+
+- Renaming now also changes the name displayed in the suggestions
+- - Clearing Messages of Banned/Muted Players from Chat
+
+</details>
+
+<details>
+<summary>Expand for the 2.4.x changelog</summary>
+
+## 2.4.0 [MINOR]: Global Chat and Channels
+
+### Features:
+
+- The Chat is broken down in Channels now
+- These Channels are currently GLOBAL, LADDER, SYSTEM, MOD
+  - GLOBAL is a single default chat for everyone, since some ladder-chats are rather dead
+  - LADDER is what you know from before, 1 Chat for each Ladder, but you can only participate in the Ladder you are
+    currently climbing
+  - SYSTEM messages are announcements, like the Messages from Chad
+  - MOD is a channel where mods can highlight their messages for moderation purposes
+- you can toggle the LADDER Chat regarding whether you want to see local messages
+
+### Improvements:
+
+- Suggestions are now based of L1 accounts
+- Messages that are not from global chat get highlighted
+- Vinegar eta is back thanks to Raldec
+
+</details>
+
+<details>
+<summary>Expand for the 2.3.x changelog</summary>
+
 ## 2.3.3 [PATCH]: Scroll Improvements and Iframes
 
 ### Features:
@@ -22,11 +163,6 @@ description: 'A list of all changes made to the game'
 ### Hotfixes:
 
 - Fixing the submit button in the signup form to not work
-
-<br><br><br><br><br><br><br>
-
-<details>
-<summary>Expand for the 2.3.x changelog</summary>
 
 ## 2.3.2 [PATCH]: Show all Ranker option
 
